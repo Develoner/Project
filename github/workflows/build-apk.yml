@@ -1,0 +1,208 @@
+Build apk · YML
+# Положите этот файл в репозиторий GitHub по пути .github/workflows/build-apk.yml
+# Он сам создаёт Android-проект «SMS-номера» и собирает APK. Другие файлы загружать не нужно.
+name: Build Android APK
+ 
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: "Адрес вашего сайта, например https://sms.example.com"
+        required: true
+ 
+permissions:
+  contents: write
+ 
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+ 
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+ 
+      - name: Create project
+        env:
+          SITE_URL: ${{ inputs.site_url }}
+        run: |
+          mkdir -p app/src/main/java/app/smsnumbers app/src/main/res/mipmap-xxxhdpi
+ 
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "SmsNumbers"
+          include ':app'
+          EOF
+ 
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.5.2' apply false
+          }
+          EOF
+ 
+          echo "org.gradle.jvmargs=-Xmx2g" > gradle.properties
+ 
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+          android {
+              namespace 'app.smsnumbers'
+              compileSdk 34
+              defaultConfig {
+                  applicationId 'app.smsnumbers'
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName '1.0'
+                  buildConfigField 'String', 'BASE_URL', '"https://YOUR-SITE.example.com"'
+              }
+              buildFeatures { buildConfig true }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF
+ 
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <application
+                  android:allowBackup="false"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="SMS-номера"
+                  android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+ 
+          cat > app/src/main/java/app/smsnumbers/MainActivity.java <<'EOF'
+          package app.smsnumbers;
+ 
+          import android.app.Activity;
+          import android.app.AlertDialog;
+          import android.os.Bundle;
+          import android.text.InputType;
+          import android.webkit.HttpAuthHandler;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.EditText;
+ 
+          public class MainActivity extends Activity {
+              private WebView web;
+ 
+              @Override
+              protected void onCreate(Bundle state) {
+                  super.onCreate(state);
+                  web = new WebView(this);
+                  setContentView(web);
+ 
+                  WebSettings s = web.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+ 
+                  web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public void onReceivedHttpAuthRequest(WebView v, HttpAuthHandler h, String host, String realm) {
+                          EditText pw = new EditText(MainActivity.this);
+                          pw.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+                          new AlertDialog.Builder(MainActivity.this)
+                                  .setTitle("Пароль")
+                                  .setView(pw)
+                                  .setPositiveButton("Войти", (d, w) -> h.proceed("user", pw.getText().toString()))
+                                  .setNegativeButton("Отмена", (d, w) -> h.cancel())
+                                  .setOnCancelListener(d -> h.cancel())
+                                  .show();
+                      }
+                  });
+ 
+                  if (state == null) web.loadUrl(BuildConfig.BASE_URL);
+                  else web.restoreState(state);
+              }
+ 
+              @Override
+              protected void onSaveInstanceState(Bundle out) {
+                  super.onSaveInstanceState(out);
+                  web.saveState(out);
+              }
+ 
+              @Override
+              public void onBackPressed() {
+                  if (web.canGoBack()) web.goBack();
+                  else super.onBackPressed();
+              }
+          }
+          EOF
+ 
+          python3 - <<'PY'
+          import zlib, struct
+          def inside_rr(x, y, x0, y0, x1, y1, r):
+              if x < x0 or x > x1 or y < y0 or y > y1:
+                  return False
+              cx = min(max(x, x0 + r), x1 - r)
+              cy = min(max(y, y0 + r), y1 - r)
+              return (x - cx) ** 2 + (y - cy) ** 2 <= r * r
+          size, blue, white = 192, (29, 78, 216), (255, 255, 255)
+          raw = bytearray()
+          for py in range(size):
+              raw.append(0)
+              v = (py + .5) / size
+              for px in range(size):
+                  u = (px + .5) / size
+                  c = blue
+                  if inside_rr(u, v, .24, .28, .76, .64, .09):
+                      c = white
+                  elif .34 <= u <= .48 and .62 <= v <= .74 and (u - .34) <= .14 * (.74 - v) / .12:
+                      c = white
+                  if any((u - dx) ** 2 + (v - .46) ** 2 <= .03 ** 2 for dx in (.38, .5, .62)):
+                      c = blue
+                  raw += bytes(c)
+          def chunk(t, d):
+              b = t + d
+              return struct.pack(">I", len(d)) + b + struct.pack(">I", zlib.crc32(b))
+          png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)) \
+              + chunk(b"IDAT", zlib.compress(bytes(raw), 9)) + chunk(b"IEND", b"")
+          open("app/src/main/res/mipmap-xxxhdpi/ic_launcher.png", "wb").write(png)
+          PY
+ 
+          SITE_URL="${SITE_URL%/}"
+          sed -i "s|https://YOUR-SITE.example.com|$SITE_URL|" app/build.gradle
+ 
+      - name: Build APK
+        run: gradle assembleDebug --no-daemon
+ 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sms-numbers-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+ 
+      - name: Publish APK as release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk sms-numbers.apk
+          gh release create "apk-${{ github.run_number }}" sms-numbers.apk \
+            --repo "${{ github.repository }}" \
+            --title "APK ${{ github.run_number }}" \
+            --notes "Debug-сборка"
